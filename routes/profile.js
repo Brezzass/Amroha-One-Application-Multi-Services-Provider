@@ -1,0 +1,6 @@
+const express=require('express'),{auth,roles}=require('../middleware/auth'),User=require('../models/User'),Vendor=require('../models/Vendor');
+const r=express.Router();
+r.get('/me',auth,async(req,res)=>res.json({success:true,user:req.user}));
+r.put('/me',auth,async(req,res,next)=>{try{const allowed=['name','email','address'];for(const k of allowed)if(req.body[k]!==undefined)req.user[k]=req.body[k];await req.user.save();if(req.user.role==='VENDOR'&&req.user.vendorId)await Vendor.updateOne({vendorId:req.user.vendorId},{$set:{businessName:req.user.name,address:req.user.address}});res.json({success:true,user:req.user})}catch(e){next(e)}});
+r.put('/location',auth,async(req,res,next)=>{try{const lat=Number(req.body.lat),lng=Number(req.body.lng);if(!Number.isFinite(lat)||!Number.isFinite(lng))return res.status(400).json({error:'Valid lat/lng required'});req.user.address={...(req.user.address?.toObject?.()||req.user.address||{}),lat,lng,geoTagged:true};await req.user.save();if(req.user.role==='VENDOR'&&req.user.vendorId)await Vendor.updateOne({vendorId:req.user.vendorId},{$set:{'address.lat':lat,'address.lng':lng,'address.geoTagged':true}});res.json({success:true,location:{lat,lng,geoTagged:true}})}catch(e){next(e)}});
+module.exports=r;

@@ -1,0 +1,12 @@
+{
+  "name": "amroha-one-api",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Amroha One multi-service backend",
+  "main": "server.js",
+  "scripts": {"start":"node server.js","dev":"node --watch server.js"},
+  "engines": {"node": ">=20"},
+  "dependencies": {
+    "bcryptjs":"^2.4.3","cors":"^2.8.5","dotenv":"^16.4.7","express":"^4.21.2","firebase-admin":"^13.6.0","jsonwebtoken":"^9.0.2","mongoose":"^8.10.0"
+  }
+}

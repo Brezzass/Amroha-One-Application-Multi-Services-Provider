@@ -1,0 +1,2 @@
+const mongoose=require('mongoose');
+module.exports=mongoose.model('Vendor',new mongoose.Schema({vendorId:{type:String,unique:true,index:true},userId:{type:mongoose.Schema.Types.ObjectId,ref:'User',index:true},businessName:String,services:{type:[String],default:['TIFFIN']},approved:{type:Boolean,default:false},active:{type:Boolean,default:true},address:{line1:String,city:String,postOffice:String,pincode:String,lat:Number,lng:Number,geoTagged:Boolean}},{timestamps:true}));

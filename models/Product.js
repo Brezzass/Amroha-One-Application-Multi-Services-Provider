@@ -1,0 +1,3 @@
+const mongoose=require('mongoose');
+const option=new mongoose.Schema({name:String,value:String,priceDelta:{type:Number,default:0}},{_id:false});
+module.exports=mongoose.model('Product',new mongoose.Schema({serviceKey:{type:String,enum:['TIFFIN','PORTER','CITY_SERVICES','GROCERY']},vendorId:{type:String,index:true},name:{type:String,required:true},description:String,category:String,imageUrl:String,price:{type:Number,required:true,min:0},unit:{type:String,default:'piece'},stock:{type:Number,default:0,min:0},active:{type:Boolean,default:true},options:{type:[option],default:[]}},{timestamps:true}));
