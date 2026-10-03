@@ -12,7 +12,7 @@ const transitions={
  CANCELLED:[]
 };
 const canTransition=(from,to)=>transitions[from]&&transitions[from].includes(to);
-const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');return {...o.toObject(),vendorName:v?.businessName||o.vendorId};};
+const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');let deliveryBoy=null;if(o.deliveryBoyId){const d=await User.findOne({deliveryBoyId:o.deliveryBoyId,role:'DELIVERY_BOY'}).select('name phone deliveryBoyId');if(d)deliveryBoy={id:d.deliveryBoyId,name:d.name,phone:d.phone};}return {...o.toObject(),vendorName:v?.businessName||o.vendorId,assignedDeliveryBoy:deliveryBoy,assignmentStatus:o.deliveryBoyId?'ASSIGNED':'UNASSIGNED'};};
 
 r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
  const {vendorId,serviceKey='TIFFIN',items=[],deliveryAddress,paymentType='COD'}=req.body;
@@ -55,7 +55,7 @@ r.put('/:id/status',auth,roles('ADMIN','VENDOR','DELIVERY_BOY'),async(req,res,ne
 r.put('/:id/assign-delivery',auth,roles('ADMIN','VENDOR'),async(req,res,next)=>{try{
  const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
  if(req.user.role==='VENDOR'&&o.vendorId!==req.user.vendorId)return res.status(403).json({error:'Not your order'});
- if(o.status!=='READY')return res.status(400).json({error:'Order must be READY before assigning delivery'});
+ if(!['READY'].includes(o.status))return res.status(400).json({error:'Order must be READY before assigning delivery'});
  const d=await User.findOne({deliveryBoyId:req.body.deliveryBoyId,role:'DELIVERY_BOY',active:true});if(!d)return res.status(400).json({error:'Delivery Boy not found or inactive'});
  o.deliveryBoyId=d.deliveryBoyId;await o.save();res.json({success:true,message:'Delivery Boy assigned',order:await publicOrder(o)});
  }catch(e){next(e)}});
