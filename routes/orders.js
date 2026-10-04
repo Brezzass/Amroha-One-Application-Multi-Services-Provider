@@ -12,6 +12,54 @@ const transitions={
  CANCELLED:[]
 };
 const canTransition=(from,to)=>transitions[from]&&transitions[from].includes(to);
+const legacyKeyOk=req=>{const k=req.get('X-API-Key')||'';return Boolean(process.env.API_KEY)&&k===process.env.API_KEY;};
+const legacyCustomer=async body=>{
+  const name=String(body?.customer?.name||'Customer').trim()||'Customer';
+  const phone=String(body?.customer?.phone||'').trim();
+  if(!/^[0-9]{10}$/.test(phone))throw Object.assign(new Error('Valid 10-digit customer phone is required'),{statusCode:400});
+  let u=await User.findOne({phone});
+  if(!u){u=await User.create({name,phone,passwordHash:'legacy-api-user',role:'CUSTOMER',active:true,address:body.deliveryAddress||{}});}
+  else {if(name)u.name=name;if(body.deliveryAddress)u.address=body.deliveryAddress;await u.save();}
+  return u;
+};
+const legacyVendor=async requested=>{
+  if(requested){const v=await Vendor.findOne({vendorId:requested,approved:true,active:true});if(v)return v;}
+  return Vendor.findOne({approved:true,active:true,services:'TIFFIN'}).sort({createdAt:1});
+};
+
+// Compatibility API for the existing Amroha One Android APK.
+// It keeps the current JWT API untouched while accepting the APK's X-API-Key contract.
+r.post('/create',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
+  const b=req.body||{},u=await legacyCustomer(b),v=await legacyVendor(String(b.vendorId||''));
+  if(!v)return res.status(400).json({error:'No approved active TIFFIN vendor available'});
+  const raw=Array.isArray(b.items)?b.items:[];if(!raw.length)return res.status(400).json({error:'items are required'});
+  const finalItems=raw.map(x=>({name:String(x.name||'Veg Lunch'),qty:Math.max(1,Number(x.quantity||x.qty||1)),unitPrice:Number(x.price||x.unitPrice||0),options:x.options||{}}));
+  const subtotal=Number(b.totalPrice||finalItems.reduce((n,x)=>n+(x.unitPrice*x.qty),0));
+  const o=await Order.create({orderNo:no(),customerId:u._id,vendorId:v.vendorId,serviceKey:'TIFFIN',items:finalItems,deliveryAddress:b.deliveryAddress||u.address||{},subtotal,grandTotal:subtotal,paymentType:['COD','UPI'].includes(String(b.paymentType||'COD').toUpperCase())?String(b.paymentType||'COD').toUpperCase():'COD',paymentStatus:'PENDING',status:'PENDING',deliveryOtp:otp()});
+  res.status(201).json({success:true,message:'Order created',order:await publicOrder(o)});
+}catch(e){next(e)}});
+
+r.get('/customer',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
+  const u=await User.findOne({phone:String(req.query.phone||'')});if(!u)return res.json({success:true,orders:[]});
+  const os=await Order.find({customerId:u._id}).sort({createdAt:-1});const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);return {...x,totalPrice:x.grandTotal};}));
+  res.json({success:true,orders});
+}catch(e){next(e)}});
+
+r.get('/incoming',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
+  const vid=String(req.query.vendorId||'');const q=vid&&vid!=='V1'?{vendorId:vid}:{};
+  const os=await Order.find({...q,status:{$nin:['DELIVERED','CANCELLED']}}).sort({createdAt:-1});
+  const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);const u=await User.findById(o.customerId).select('name phone');return {...x,totalPrice:x.grandTotal,customer:u?{name:u.name,phone:u.phone}:null};}));
+  res.json({success:true,orders});
+}catch(e){next(e)}});
+
+r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next();if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
+  const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
+  const st=String(req.body?.status||'').toUpperCase();const allowed=['PENDING','ACCEPTED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED'];
+  if(!allowed.includes(st))return res.status(400).json({error:'Invalid order status'});
+  o.status=st;if(st==='DELIVERED')o.deliveredAt=new Date();await o.save();
+  res.json({success:true,message:'Order '+st,order:await publicOrder(o)});
+}catch(e){next(e)}});
+
 const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');let deliveryBoy=null;if(o.deliveryBoyId){const d=await User.findOne({deliveryBoyId:o.deliveryBoyId,role:'DELIVERY_BOY'}).select('name phone deliveryBoyId');if(d)deliveryBoy={id:d.deliveryBoyId,name:d.name,phone:d.phone};}return {...o.toObject(),vendorName:v?.businessName||o.vendorId,assignedDeliveryBoy:deliveryBoy,assignmentStatus:o.deliveryBoyId?'ASSIGNED':'UNASSIGNED'};};
 
 r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
