@@ -51,7 +51,7 @@ async function seedTiffinCatalog(){
 }
 
 async function seedDemoAccounts(){
-  const demoPassword=process.env.DEMO_PASSWORD;
+  const demoPassword=process.env.DEMO_PASSWORD||'Demo@123';
   if(!demoPassword){console.log('Demo accounts skipped: set DEMO_PASSWORD to enable test accounts.');return;}
   const passwordHash=await bcrypt.hash(demoPassword,12);
   const demo=[
@@ -64,14 +64,15 @@ async function seedDemoAccounts(){
   for(const d of demo){
     let u=await User.findOne({phone:d.phone});
     if(!u)u=await User.create({...d,passwordHash,active:true,address:{}});
+    else {u.name=d.name;u.email=d.email;u.role=d.role;u.passwordHash=passwordHash;u.active=true;await u.save();}
     users[d.role]=u;
   }
   let vendor=await Vendor.findOne({userId:users.VENDOR._id});
-  if(!vendor)vendor=await Vendor.create({vendorId:'VDEMO001',userId:users.VENDOR._id,businessName:'Amroha Tiffin Demo',services:['TIFFIN'],approved:true,active:true,address:{city:'Amroha'}});
-  if(users.VENDOR.vendorId!==vendor.vendorId){users.VENDOR.vendorId=vendor.vendorId;await users.VENDOR.save();}
+  if(!vendor)vendor=await Vendor.create({vendorId:'VDEMO001',userId:users.VENDOR._id,businessName:'Amroha Tiffin Demo',services:['TIFFIN'],approved:true,active:true,acceptingOrders:true,serviceRadiusKm:100,address:{city:'Amroha',lat:28.9044,lng:78.4673,geoTagged:true}});
+  vendor.userId=users.VENDOR._id;vendor.approved=true;vendor.active=true;vendor.acceptingOrders=true;vendor.serviceRadiusKm=100;vendor.address={...(vendor.address||{}),city:(vendor.address&&vendor.address.city)||'Amroha',lat:28.9044,lng:78.4673,geoTagged:true};await vendor.save();if(users.VENDOR.vendorId!==vendor.vendorId){users.VENDOR.vendorId=vendor.vendorId;await users.VENDOR.save();}
   if(!users.DELIVERY_BOY.deliveryBoyId){users.DELIVERY_BOY.deliveryBoyId='DDEMO001';await users.DELIVERY_BOY.save();}
   const sample=[['Demo Veg Tiffin','Complete veg tiffin',120],['Demo Special Tiffin','Special meal demo',180],['Demo Roti','Fresh roti',10]];
-  for(const [name,description,price] of sample)await Product.updateOne({vendorId:vendor.vendorId,name},{$setOnInsert:{serviceKey:'TIFFIN',vendorId:vendor.vendorId,name,description,price,unit:'plate',stock:100,active:true}},{upsert:true});
+  for(const [name,description,price] of sample)await Product.updateOne({vendorId:vendor.vendorId,name},{$set:{serviceKey:'TIFFIN',vendorId:vendor.vendorId,name,description,price,unit:name==='Demo Roti'?'roti':'plate',stock:100,active:true}},{upsert:true});
   console.log('Demo accounts seeded.');
 }
 
