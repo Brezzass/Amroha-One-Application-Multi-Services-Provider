@@ -12,6 +12,9 @@ const transitions={
  CANCELLED:[]
 };
 const canTransition=(from,to)=>transitions[from]&&transitions[from].includes(to);
+const distanceKm=(lat1,lng1,lat2,lng2)=>{const R=6371,la1=Number(lat1)*Math.PI/180,la2=Number(lat2)*Math.PI/180,dla=(Number(lat2)-Number(lat1))*Math.PI/180,dlo=(Number(lng2)-Number(lng1))*Math.PI/180;const a=Math.sin(dla/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dlo/2)**2;return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));};
+const checkVendorService=(v,address)=>{if(v.acceptingOrders===false)throw Object.assign(new Error('Vendor is currently offline for new orders'),{statusCode:409});const vlat=Number(v.address?.lat),vlng=Number(v.address?.lng),clat=Number(address?.lat),clng=Number(address?.lng),radius=Number(v.serviceRadiusKm||10);if(!Number.isFinite(vlat)||!Number.isFinite(vlng)||vlat===0||vlng===0)throw Object.assign(new Error('Vendor service center is not configured'),{statusCode:409});if(!Number.isFinite(clat)||!Number.isFinite(clng)||clat===0||clng===0)throw Object.assign(new Error('Customer delivery location is required'),{statusCode:400});const km=distanceKm(vlat,vlng,clat,clng);if(km>radius)throw Object.assign(new Error(`Customer is ${km.toFixed(1)} km away; vendor serves up to ${radius} km`),{statusCode:422});return km;};
+
 const legacyKeyOk=req=>Boolean((req.get('X-API-Key')||'').trim());
 const legacyCustomer=async body=>{
   const name=String(body?.customer?.name||'Customer').trim()||'Customer';
@@ -32,6 +35,7 @@ const legacyVendor=async requested=>{
 r.post('/create',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
   const b=req.body||{},u=await legacyCustomer(b),v=await legacyVendor(String(b.vendorId||''));
   if(!v)return res.status(400).json({error:'No approved active TIFFIN vendor available'});
+  checkVendorService(v,b.deliveryAddress);
   const raw=Array.isArray(b.items)?b.items:[];if(!raw.length)return res.status(400).json({error:'items are required'});
   const finalItems=raw.map(x=>({name:String(x.name||'Veg Lunch'),qty:Math.max(1,Number(x.quantity||x.qty||1)),unitPrice:Number(x.price||x.unitPrice||0),options:x.options||{}}));
   const subtotal=Number(b.totalPrice||finalItems.reduce((n,x)=>n+(x.unitPrice*x.qty),0));
@@ -81,6 +85,7 @@ r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
  if(!['COD','UPI'].includes(paymentType))return res.status(400).json({error:'Invalid payment type'});
  const v=await Vendor.findOne({vendorId,approved:true,active:true});
  if(!v)return res.status(400).json({error:'Vendor unavailable or not approved'});
+ checkVendorService(v,deliveryAddress);
  const ids=items.map(x=>x.productId);
  const ps=await Product.find({_id:{$in:ids},vendorId,serviceKey:String(serviceKey).toUpperCase(),active:true});
  if(ps.length!==items.length)return res.status(400).json({error:'One or more products unavailable'});
