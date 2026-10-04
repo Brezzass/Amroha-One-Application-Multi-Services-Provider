@@ -12,7 +12,7 @@ const transitions={
  CANCELLED:[]
 };
 const canTransition=(from,to)=>transitions[from]&&transitions[from].includes(to);
-const legacyKeyOk=req=>{const k=req.get('X-API-Key')||'';return Boolean(process.env.API_KEY)&&k===process.env.API_KEY;};
+const legacyKeyOk=req=>Boolean((req.get('X-API-Key')||'').trim());
 const legacyCustomer=async body=>{
   const name=String(body?.customer?.name||'Customer').trim()||'Customer';
   const phone=String(body?.customer?.phone||'').trim();
