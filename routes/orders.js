@@ -60,13 +60,16 @@ r.get('/incoming',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(4
 
 r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next();if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
   const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
-  const st=String(req.body?.status||'').toUpperCase();const allowed=['PENDING','ACCEPTED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED'];
+  const st=String(req.body?.status||'').toUpperCase();const caller=String(req.get('X-Role')||'').toUpperCase();const allowed=['PENDING','ACCEPTED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED'];
+  if(st==='OUT_FOR_DELIVERY'&&!['VENDOR','ADMIN'].includes(caller))return res.status(403).json({error:'Only Vendor or Admin can send order for delivery'});
+  if(st==='DELIVERED'&&caller!=='DELIVERY')return res.status(403).json({error:'Only Delivery Boy can deliver the order'});
   if(!allowed.includes(st))return res.status(400).json({error:'Invalid order status'});
   o.status=st;if(st==='OUT_FOR_DELIVERY'){
     const d=await User.findOne({role:'DELIVERY_BOY',active:true,deliveryBoyId:{$exists:true,$ne:''}}).sort({createdAt:1});
     if(!d)return res.status(400).json({error:'No active Delivery Boy available'});
     o.deliveryBoyId=d.deliveryBoyId;
   }
+  if(st==='DELIVERED'&&o.status!=='OUT_FOR_DELIVERY')return res.status(400).json({error:'Order must be OUT_FOR_DELIVERY before delivery'});
   if(st==='DELIVERED'){
     if(String(req.body?.deliveryOtp||'')!==String(o.deliveryOtp))return res.status(400).json({error:'Invalid delivery OTP'});
     o.deliveredAt=new Date();
