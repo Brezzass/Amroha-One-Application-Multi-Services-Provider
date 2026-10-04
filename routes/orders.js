@@ -64,15 +64,10 @@ r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next()
   if(st==='OUT_FOR_DELIVERY'&&!['VENDOR','ADMIN'].includes(caller))return res.status(403).json({error:'Only Vendor or Admin can send order for delivery'});
   if(st==='DELIVERED'&&caller!=='DELIVERY')return res.status(403).json({error:'Only Delivery Boy can deliver the order'});
   if(!allowed.includes(st))return res.status(400).json({error:'Invalid order status'});
-  o.status=st;if(st==='OUT_FOR_DELIVERY'){
+  if(st==='DELIVERED' && o.status!=='OUT_FOR_DELIVERY')return res.status(400).json({error:'Order must be OUT_FOR_DELIVERY before delivery'});if(st==='DELIVERED'){if(String(req.body?.deliveryOtp||'')!==String(o.deliveryOtp))return res.status(400).json({error:'Invalid delivery OTP'});o.deliveredAt=new Date();}o.status=st;if(st==='OUT_FOR_DELIVERY'){
     const d=await User.findOne({role:'DELIVERY_BOY',active:true,deliveryBoyId:{$exists:true,$ne:''}}).sort({createdAt:1});
     if(!d)return res.status(400).json({error:'No active Delivery Boy available'});
     o.deliveryBoyId=d.deliveryBoyId;
-  }
-  if(st==='DELIVERED'&&o.status!=='OUT_FOR_DELIVERY')return res.status(400).json({error:'Order must be OUT_FOR_DELIVERY before delivery'});
-  if(st==='DELIVERED'){
-    if(String(req.body?.deliveryOtp||'')!==String(o.deliveryOtp))return res.status(400).json({error:'Invalid delivery OTP'});
-    o.deliveredAt=new Date();
   }
   await o.save();
   res.json({success:true,message:'Order '+st,order:await publicOrder(o)});
