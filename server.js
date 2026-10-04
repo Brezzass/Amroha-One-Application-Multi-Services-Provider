@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express=require('express'),cors=require('cors'),mongoose=require('mongoose'),bcrypt=require('bcryptjs'),jwt=require('jsonwebtoken'),admin=require('firebase-admin');
 const Service=require('./models/Service'),User=require('./models/User'),Vendor=require('./models/Vendor'),Product=require('./models/Product');
-const app=express();app.disable('x-powered-by');app.use(cors({origin:process.env.CORS_ORIGIN||'*'}));app.use(express.json({limit:'1mb'}));
+const app=express();app.disable('x-powered-by');app.use(cors({origin:process.env.CORS_ORIGIN||'*'}));app.use(express.json({limit:'6mb'}));
 function initFirebase(){try{if(!process.env.FIREBASE_SERVICE_ACCOUNT)return null;if(admin.apps.length)return admin.app();return admin.initializeApp({credential:admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT))})}catch(e){console.error('Firebase init failed:',e.message);return null}}
 app.get('/',(q,s)=>s.json({name:'Amroha One API',version:'2.1.0',status:'ok'}));
 app.get('/health',(q,s)=>s.json({status:'ok',appName:'Amroha One',database:mongoose.connection.readyState===1?'connected':'disconnected',fcm:Boolean(app.locals.firebaseAdmin),services:{tiffin:true,porter:false,cityServices:false,grocery:false}}));
