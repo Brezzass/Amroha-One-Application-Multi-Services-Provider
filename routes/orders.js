@@ -80,19 +80,38 @@ r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next()
 const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');let deliveryBoy=null;if(o.deliveryBoyId){const d=await User.findOne({deliveryBoyId:o.deliveryBoyId,role:'DELIVERY_BOY'}).select('name phone deliveryBoyId');if(d)deliveryBoy={id:d.deliveryBoyId,name:d.name,phone:d.phone};}return {...o.toObject(),vendorName:v?.businessName||o.vendorId,assignedDeliveryBoy:deliveryBoy,assignmentStatus:o.deliveryBoyId?'ASSIGNED':'UNASSIGNED'};};
 
 r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
- const {vendorId,serviceKey='TIFFIN',items=[],deliveryAddress,paymentType='COD'}=req.body;
- if(!vendorId||!items.length||!deliveryAddress?.lat||!deliveryAddress?.lng)return res.status(400).json({error:'vendorId, items and geotagged deliveryAddress are required'});
- if(!['COD','UPI'].includes(paymentType))return res.status(400).json({error:'Invalid payment type'});
- const v=await Vendor.findOne({vendorId,approved:true,active:true});
- if(!v)return res.status(400).json({error:'Vendor unavailable or not approved'});
+ const body=req.body||{},rawVendorId=String(body.vendorId||'').trim(),serviceKey=String(body.serviceKey||'TIFFIN').toUpperCase(),items=Array.isArray(body.items)?body.items:[],deliveryAddress=body.deliveryAddress||{},paymentType=String(body.paymentType||'COD').toUpperCase();
+ // Keep the authenticated APK order API compatible with older customer builds.
+ const vendorId=(rawVendorId&&rawVendorId!=='V1')?rawVendorId:'';
+ if(!items.length)return res.status(400).json({error:'At least one order item is required'});
+ if(!Number.isFinite(Number(deliveryAddress.lat))||!Number.isFinite(Number(deliveryAddress.lng)))return res.status(400).json({error:'Current delivery location (lat/lng) is required'});
+ if(!['COD','UPI'].includes(paymentType))return res.status(400).json({error:'Invalid payment type. Use COD or UPI'});
+ let v=vendorId?await Vendor.findOne({vendorId,approved:true,active:true}):null;
+ if(!v)v=await Vendor.findOne({approved:true,active:true,services:serviceKey}).sort({createdAt:1});
+ if(!v)return res.status(400).json({error:'No approved active vendor is available for '+serviceKey});
  checkVendorService(v,deliveryAddress);
- const ids=items.map(x=>x.productId);
- const ps=await Product.find({_id:{$in:ids},vendorId,serviceKey:String(serviceKey).toUpperCase(),active:true});
- if(ps.length!==items.length)return res.status(400).json({error:'One or more products unavailable'});
- let subtotal=0;const finalItems=[];
- for(const x of items){const p=ps.find(z=>String(z._id)===String(x.productId));const qty=Number(x.qty||1);if(!Number.isInteger(qty)||qty<1)return res.status(400).json({error:'Invalid quantity'});if(p.stock<qty)return res.status(400).json({error:`Insufficient stock for ${p.name}`});subtotal+=p.price*qty;finalItems.push({productId:p._id,name:p.name,qty,unitPrice:p.price,options:x.options||{}});}
- for(const x of items){const p=ps.find(z=>String(z._id)===String(x.productId));p.stock-=Number(x.qty||1);await p.save();}
- const o=await Order.create({orderNo:no(),customerId:req.user._id,vendorId,serviceKey:String(serviceKey).toUpperCase(),items:finalItems,deliveryAddress,subtotal,grandTotal:subtotal,paymentType,paymentStatus:paymentType==='COD'?'PENDING':'PENDING',status:'PENDING',deliveryOtp:otp()});
+ const ids=items.map(x=>String(x.productId||x._id||x.id||'')).filter(Boolean);
+ let ps=ids.length?await Product.find({_id:{$in:ids},vendorId:v.vendorId,serviceKey,active:true}):[];
+ // If an older APK sends a product reference in a different field, fall back to name.
+ if(ps.length!==items.length){
+   const names=items.map(x=>String(x.name||'').trim()).filter(Boolean);
+   if(names.length===items.length)ps=await Product.find({name:{$in:names},vendorId:v.vendorId,serviceKey,active:true});
+ }
+ if(ps.length!==items.length)return res.status(400).json({error:'One or more selected products are no longer available. Please reopen the vendor menu and select the item again.'});
+ let subtotal=0;const finalItems=[];const stockChanges=[];
+ for(const x of items){
+   const ref=String(x.productId||x._id||x.id||'');
+   const name=String(x.name||'').trim();
+   const p=ps.find(z=>(ref&&String(z._id)===ref)||(!ref&&name&&z.name===name));
+   if(!p)return res.status(400).json({error:'Selected product could not be matched'});
+   const qty=Number(x.qty||x.quantity||1);
+   if(!Number.isInteger(qty)||qty<1)return res.status(400).json({error:'Invalid quantity for '+p.name});
+   if(p.stock<qty)return res.status(400).json({error:`Insufficient stock for ${p.name}`});
+   subtotal+=p.price*qty;finalItems.push({productId:p._id,name:p.name,qty,unitPrice:p.price,options:x.options||{}});stockChanges.push({p,qty});
+ }
+ // Create the order first; only reduce stock after the order is successfully written.
+ const o=await Order.create({orderNo:no(),customerId:req.user._id,vendorId:v.vendorId,serviceKey,items:finalItems,deliveryAddress,subtotal,grandTotal:subtotal,paymentType,paymentStatus:'PENDING',status:'PENDING',deliveryOtp:otp()});
+ for(const x of stockChanges){x.p.stock-=x.qty;await x.p.save();}
  res.status(201).json({success:true,message:'Order created',order:await publicOrder(o)});
  }catch(e){next(e)}});
 
