@@ -39,6 +39,12 @@ r.post('/create',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(40
   res.status(201).json({success:true,message:'Order created',order:await publicOrder(o)});
 }catch(e){next(e)}});
 
+r.get('/delivery',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
+  const os=await Order.find({status:'OUT_FOR_DELIVERY',deliveryBoyId:{$exists:true,$ne:null}}).sort({createdAt:-1});
+  const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);const u=await User.findById(o.customerId).select('name phone');return {...x,totalPrice:x.grandTotal,customer:u?{name:u.name,phone:u.phone}:null};}));
+  res.json({success:true,orders});
+}catch(e){next(e)}});
+
 r.get('/customer',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
   const u=await User.findOne({phone:String(req.query.phone||'')});if(!u)return res.json({success:true,orders:[]});
   const os=await Order.find({customerId:u._id}).sort({createdAt:-1});const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);return {...x,totalPrice:x.grandTotal};}));
@@ -47,7 +53,7 @@ r.get('/customer',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(4
 
 r.get('/incoming',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
   const vid=String(req.query.vendorId||'');const q=vid&&vid!=='V1'?{vendorId:vid}:{};
-  const os=await Order.find({...q,status:{$nin:['DELIVERED','CANCELLED']}}).sort({createdAt:-1});
+  const os=await Order.find(q).sort({createdAt:-1});
   const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);const u=await User.findById(o.customerId).select('name phone');return {...x,totalPrice:x.grandTotal,customer:u?{name:u.name,phone:u.phone}:null};}));
   res.json({success:true,orders});
 }catch(e){next(e)}});
@@ -56,7 +62,16 @@ r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next()
   const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
   const st=String(req.body?.status||'').toUpperCase();const allowed=['PENDING','ACCEPTED','PREPARING','READY','OUT_FOR_DELIVERY','DELIVERED','CANCELLED'];
   if(!allowed.includes(st))return res.status(400).json({error:'Invalid order status'});
-  o.status=st;if(st==='DELIVERED')o.deliveredAt=new Date();await o.save();
+  o.status=st;if(st==='OUT_FOR_DELIVERY'){
+    const d=await User.findOne({role:'DELIVERY_BOY',active:true,deliveryBoyId:{$exists:true,$ne:''}}).sort({createdAt:1});
+    if(!d)return res.status(400).json({error:'No active Delivery Boy available'});
+    o.deliveryBoyId=d.deliveryBoyId;
+  }
+  if(st==='DELIVERED'){
+    if(String(req.body?.deliveryOtp||'')!==String(o.deliveryOtp))return res.status(400).json({error:'Invalid delivery OTP'});
+    o.deliveredAt=new Date();
+  }
+  await o.save();
   res.json({success:true,message:'Order '+st,order:await publicOrder(o)});
 }catch(e){next(e)}});
 
