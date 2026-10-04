@@ -1,5 +1,82 @@
 const express=require('express'),crypto=require('crypto'),Order=require('../models/Order'),Product=require('../models/Product'),Vendor=require('../models/Vendor'),User=require('../models/User'),{auth,roles}=require('../middleware/auth');
 const r=express.Router();
+const legacyApiKey=(req,res,next)=>{
+ const expected=process.env.API_KEY;
+ const supplied=req.get('X-API-Key')||'';
+ if(!expected)return res.status(500).json({error:'API_KEY is not configured'});
+ if(supplied!==expected)return res.status(401).json({error:'Invalid API key'});
+ next();
+};
+const legacyCustomer=async(name,phone)=>{
+ let u=await User.findOne({phone});
+ if(!u){
+   u=await User.create({name:name||'Customer',phone,passwordHash:require('bcryptjs').hashSync('legacy-account',10),role:'CUSTOMER',active:true});
+ }
+ return u;
+};
+const legacyOrder=async(o)=>{
+ const u=o.customerId?await User.findById(o.customerId).select('name phone'):null;
+ return {
+   ...o.toObject(),
+   totalPrice:o.grandTotal,
+   customer:u?{name:u.name,phone:u.phone}:{},
+   vendorId:o.vendorId
+ };
+};
+
+// Legacy Android app compatibility: X-API-Key based endpoints.
+// These coexist with the newer JWT endpoints below.
+r.post('/create',legacyApiKey,async(req,res,next)=>{try{
+ const {customer={},vendorId='V1',items=[],deliveryAddress={},paymentType='COD',totalPrice}=req.body;
+ if(!customer.phone||String(customer.phone).replace(/\\D/g,'').length!==10)return res.status(400).json({error:'Valid 10-digit customer phone is required'});
+ if(!Array.isArray(items)||!items.length)return res.status(400).json({error:'At least one item is required'});
+ if(!['COD','UPI'].includes(paymentType))return res.status(400).json({error:'Invalid payment type'});
+ const u=await legacyCustomer(String(customer.name||'Customer').trim(),String(customer.phone).replace(/\\D/g,''));
+ const finalItems=items.map(x=>({
+   name:String(x.name||x.category||'Tiffin Item'),
+   qty:Number(x.quantity||x.qty||1),
+   unitPrice:Number(x.price||x.unitPrice||0),
+   options:x.options||{}
+ }));
+ if(finalItems.some(x=>!Number.isInteger(x.qty)||x.qty<1||!Number.isFinite(x.unitPrice)||x.unitPrice<0))return res.status(400).json({error:'Invalid order item'});
+ const subtotal=finalItems.reduce((s,x)=>s+x.qty*x.unitPrice,0);
+ const grandTotal=Number.isFinite(Number(totalPrice))?Number(totalPrice):subtotal;
+ const o=await Order.create({
+   orderNo:no(),customerId:u._id,vendorId:String(vendorId||'V1'),
+   serviceKey:'TIFFIN',items:finalItems,deliveryAddress,
+   subtotal,grandTotal,paymentType,paymentStatus:'PENDING',
+   status:'PENDING',deliveryOtp:otp()
+ });
+ res.status(201).json({success:true,message:'Order created',order:{...o.toObject(),totalPrice:o.grandTotal,customer:{name:u.name,phone:u.phone}}});
+ }catch(e){next(e)}});
+
+r.get('/customer',legacyApiKey,async(req,res,next)=>{try{
+ const phone=String(req.query.phone||'').replace(/\\D/g,'');
+ const u=await User.findOne({phone});
+ const os=u?await Order.find({customerId:u._id}).sort({createdAt:-1}):[];
+ res.json({success:true,orders:await Promise.all(os.map(legacyOrder))});
+ }catch(e){next(e)}});
+
+r.get('/incoming',legacyApiKey,async(req,res,next)=>{try{
+ const vendorId=String(req.query.vendorId||'V1');
+ const os=await Order.find({vendorId}).sort({createdAt:-1});
+ res.json({success:true,orders:await Promise.all(os.map(legacyOrder))});
+ }catch(e){next(e)}});
+
+r.put('/:id/status',legacyApiKey,async(req,res,next)=>{
+ try{
+   const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
+   const nextStatus=String(req.body.status||'').toUpperCase();
+   if(!canTransition(o.status,nextStatus))return res.status(400).json({error:`Invalid order transition: ${o.status} -> ${nextStatus}`});
+   if(nextStatus==='DELIVERED'){
+     if(String(req.body.deliveryOtp||'')!==String(o.deliveryOtp))return res.status(400).json({error:'Invalid delivery OTP'});
+     o.deliveredAt=new Date();
+   }
+   o.status=nextStatus;await o.save();
+   const out=await legacyOrder(o);res.json({success:true,message:`Order ${nextStatus}`,order:out});
+ }catch(e){next(e)}
+});
+
 const no=()=>`AO-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 const otp=()=>String(100000+crypto.randomInt(900000));
 const transitions={
