@@ -19,7 +19,8 @@ r.get('/:vendorId',async(req,res,next)=>{try{
 
 r.put('/me',auth,roles('VENDOR'),async(req,res,next)=>{try{
   const v=await Vendor.findOne({vendorId:req.user.vendorId});if(!v)return res.status(404).json({error:'Vendor profile not found'});
-  for(const k of ['businessName','services','address'])if(req.body[k]!==undefined)v[k]=req.body[k];
+  for(const k of ['businessName','services'])if(req.body[k]!==undefined)v[k]=req.body[k];
+  if(req.body.address!==undefined)v.address={...(v.address||{}),...req.body.address};
   if(req.body.serviceRadiusKm!==undefined){const n=Number(req.body.serviceRadiusKm);if(!Number.isFinite(n)||n<1||n>100)return res.status(400).json({error:'Service radius must be between 1 and 100 km'});v.serviceRadiusKm=n;}
   if(req.body.acceptingOrders!==undefined)v.acceptingOrders=Boolean(req.body.acceptingOrders);
   const a=v.address||{};if(v.serviceRadiusKm&&(Number(a.lat)===0||Number(a.lng)===0))return res.status(400).json({error:'Vendor service center location is required'});
