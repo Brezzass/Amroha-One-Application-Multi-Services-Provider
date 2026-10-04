@@ -8,6 +8,48 @@ app.get('/health',(q,s)=>s.json({status:'ok',appName:'Amroha One',database:mongo
 app.use('/api/vendors',require('./routes/vendors'));app.use('/api/auth',require('./routes/auth'));app.use('/api/profile',require('./routes/profile'));app.use('/api/services',require('./routes/services'));app.use('/api/products',require('./routes/products'));app.use('/api/orders',require('./routes/orders'));app.use('/api/tracking',require('./routes/tracking'));app.use('/api/admin',require('./routes/admin'));app.use('/api/delivery',require('./routes/delivery'));
 app.use((e,q,s,n)=>{console.error(e);if(e.code===11000)return s.status(409).json({error:'Duplicate record'});if(e.name==='ValidationError')return s.status(400).json({error:e.message});s.status(500).json({error:'Internal server error'})});
 
+async function seedTiffinCatalog(){
+  const vendors=await Vendor.find({approved:true,active:true,services:'TIFFIN'});
+  const single=[
+    ['Mini Veg Tiffin','Single Meal','3 Chapatis + 1 Veg Curry/Sabzi + Dal',50,'half / mini portion'],
+    ['Mini Veg Tiffin','Single Meal','3 Chapatis + 1 Veg Curry/Sabzi + Dal',75,'full / standard portion'],
+    ['Standard Veg Tiffin','Single Meal','4 Chapatis + Rice + 1 Sabzi + Dal + Salad',70,'half / mini portion'],
+    ['Standard Veg Tiffin','Single Meal','4 Chapatis + Rice + 1 Sabzi + Dal + Salad',90,'full / standard portion'],
+    ['Deluxe Veg Thali','Single Meal','4 Butter Rotis + Jeera Rice + Paneer Dish + Dal Makhani + Sweet/Raita',90,'half / mini portion'],
+    ['Deluxe Veg Thali','Single Meal','4 Butter Rotis + Jeera Rice + Paneer Dish + Dal Makhani + Sweet/Raita',130,'full / standard portion'],
+    ['Egg Tiffin','Single Meal','Egg Curry (2 eggs) + 4 Chapatis + Rice + Salad',80,'half / mini portion'],
+    ['Egg Tiffin','Single Meal','Egg Curry (2 eggs) + 4 Chapatis + Rice + Salad',110,'full / standard portion'],
+    ['Standard Non-Veg Tiffin','Single Meal','Chicken Curry + 4 Chapatis + Rice + Salad',100,'half / mini portion'],
+    ['Standard Non-Veg Tiffin','Single Meal','Chicken Curry + 4 Chapatis + Rice + Salad',130,'full / standard portion'],
+    ['Special Mutton Tiffin','Single Meal','Mutton Curry + 4 Chapatis + Steamed Rice + Salad',140,'half / mini portion'],
+    ['Special Mutton Tiffin','Single Meal','Mutton Curry + 4 Chapatis + Steamed Rice + Salad',180,'full / standard portion']
+  ];
+  const plans=[
+    ['Weekly Plan - 6 Days','Subscription','1 Meal/Day (Lunch OR Dinner) • Veg',420,'weekly • veg'],
+    ['Weekly Plan - 6 Days','Subscription','1 Meal/Day (Lunch OR Dinner) • Non-Veg',660,'weekly • non-veg'],
+    ['Weekly Plan - 6 Days','Subscription','2 Meals/Day (Lunch AND Dinner) • Veg',800,'weekly • veg'],
+    ['Weekly Plan - 6 Days','Subscription','2 Meals/Day (Lunch AND Dinner) • Non-Veg',1250,'weekly • non-veg'],
+    ['Monthly Plan - 26 Days','Subscription','1 Meal/Day (Lunch OR Dinner) • Veg',1800,'monthly • veg'],
+    ['Monthly Plan - 26 Days','Subscription','1 Meal/Day (Lunch OR Dinner) • Non-Veg',2700,'monthly • non-veg'],
+    ['Monthly Plan - 26 Days','Subscription','2 Meals/Day (Lunch AND Dinner) • Veg',3400,'monthly • veg'],
+    ['Monthly Plan - 26 Days','Subscription','2 Meals/Day (Lunch AND Dinner) • Non-Veg',5000,'monthly • non-veg'],
+    ['Student / Budget Monthly','Subscription','1 Meal/Day (Standard Mini Veg)',1500,'student monthly • veg']
+  ];
+  const extras=[
+    ['Extra Chapati','Add-on','Per pc',8,'per piece'],
+    ['Extra Bowl of Rice / Dal','Add-on','One extra bowl',30,'per bowl'],
+    ['Plain Curd / Boondi Raita','Add-on','One serving',25,'per serving'],
+    ['Sweet - Gulab Jamun / Kheer','Add-on','1 pc',25,'per piece'],
+    ['Packing & Delivery Charges','Add-on','Monthly plan',0,'Included / Free']
+  ];
+  const all=[...single,...plans,...extras];
+  for(const v of vendors)for(const [name,category,description,price,unit] of all)
+    await Product.updateOne({vendorId:v.vendorId,name,price,category},
+      {$set:{serviceKey:'TIFFIN',vendorId:v.vendorId,name,category,description,price,unit,stock:999,active:true}},
+      {upsert:true});
+  console.log('Tiffin catalog seeded for '+vendors.length+' vendor(s).');
+}
+
 async function seedDemoAccounts(){
   const demoPassword=process.env.DEMO_PASSWORD;
   if(!demoPassword){console.log('Demo accounts skipped: set DEMO_PASSWORD to enable test accounts.');return;}
@@ -43,6 +85,7 @@ async function start(){
     console.log('Admin seeded:',u.phone);
   }
   await seedDemoAccounts();
+  await seedTiffinCatalog();
   app.locals.firebaseAdmin=initFirebase();
   const port=Number(process.env.PORT||10000);app.listen(port,'0.0.0.0',()=>console.log('Amroha One API 2.1.0 listening on '+port));
 }
