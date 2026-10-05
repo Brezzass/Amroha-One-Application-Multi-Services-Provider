@@ -120,7 +120,11 @@ r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
  }catch(e){next(e)}});
 
 r.get('/mine',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
- const os=await Order.find({customerId:req.user._id}).sort({createdAt:-1}).lean();
+ const mineId=String(req.user._id);
+ const phone=String(req.user.phone||'').trim();
+ const phoneUser=phone?await User.findOne({phone}).select('_id'):null;
+ const ids=[mineId];if(phoneUser&&String(phoneUser._id)!==mineId)ids.push(String(phoneUser._id));
+ const os=await Order.find({customerId:{$in:ids}}).sort({createdAt:-1}).lean();
  const vids=[...new Set(os.map(o=>String(o.vendorId||'')).filter(Boolean))];
  const vs=vids.length?await Vendor.find({vendorId:{$in:vids}}).select('vendorId businessName').lean():[];
  const vm=new Map(vs.map(v=>[String(v.vendorId),v.businessName||v.vendorId]));
