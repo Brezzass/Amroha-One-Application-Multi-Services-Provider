@@ -50,8 +50,12 @@ r.get('/delivery',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(4
 }catch(e){next(e)}});
 
 r.get('/customer',async(req,res,next)=>{if(!legacyKeyOk(req))return res.status(401).json({error:'Invalid API key'});try{
-  const u=await User.findOne({phone:String(req.query.phone||'')});if(!u)return res.json({success:true,orders:[]});
-  const os=await Order.find({customerId:u._id}).sort({createdAt:-1});const orders=await Promise.all(os.map(async o=>{const x=await publicOrder(o);return {...x,totalPrice:x.grandTotal};}));
+  const u=await User.findOne({phone:String(req.query.phone||'')}).select('_id');if(!u)return res.json({success:true,orders:[]});
+  const os=await Order.find({customerId:u._id}).sort({createdAt:-1}).lean();
+  const vids=[...new Set(os.map(o=>String(o.vendorId||'')).filter(Boolean))];
+  const vs=vids.length?await Vendor.find({vendorId:{$in:vids}}).select('vendorId businessName').lean():[];
+  const vm=new Map(vs.map(v=>[String(v.vendorId),v.businessName||v.vendorId]));
+  const orders=os.map(o=>({...o,vendorName:vm.get(String(o.vendorId||''))||String(o.vendorId||'Vendor'),totalPrice:Number(o.grandTotal||0)}));
   res.json({success:true,orders});
 }catch(e){next(e)}});
 
