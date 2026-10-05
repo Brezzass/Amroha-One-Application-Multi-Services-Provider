@@ -77,7 +77,7 @@ r.put('/:id/status',async(req,res,next)=>{if(!req.get('X-API-Key'))return next()
   res.json({success:true,message:'Order '+st,order:await publicOrder(o)});
 }catch(e){next(e)}});
 
-const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');let deliveryBoy=null;if(o.deliveryBoyId){const d=await User.findOne({deliveryBoyId:o.deliveryBoyId,role:'DELIVERY_BOY'}).select('name phone deliveryBoyId');if(d)deliveryBoy={id:d.deliveryBoyId,name:d.name,phone:d.phone};}return {...o.toObject(),vendorName:v?.businessName||o.vendorId,assignedDeliveryBoy:deliveryBoy,assignmentStatus:o.deliveryBoyId?'ASSIGNED':'UNASSIGNED'};};
+const publicOrder=async o=>{const v=await Vendor.findOne({vendorId:o.vendorId}).select('businessName vendorId');let deliveryBoy=null;if(o.deliveryBoyId){const d=await User.findOne({deliveryBoyId:o.deliveryBoyId,role:'DELIVERY_BOY'}).select('name phone deliveryBoyId');if(d)deliveryBoy={id:d.deliveryBoyId,name:d.name,phone:d.phone};}const data=o.toObject();data.totalPrice=Number(data.grandTotal||data.subtotal||0);return {...data,vendorName:v?.businessName||o.vendorId,assignedDeliveryBoy:deliveryBoy,assignmentStatus:o.deliveryBoyId?'ASSIGNED':'UNASSIGNED'};};
 
 r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
  const body=req.body||{},rawVendorId=String(body.vendorId||'').trim(),serviceKey=String(body.serviceKey||'TIFFIN').toUpperCase(),items=Array.isArray(body.items)?body.items:[],deliveryAddress=body.deliveryAddress||{},paymentType=String(body.paymentType||'COD').toUpperCase();
