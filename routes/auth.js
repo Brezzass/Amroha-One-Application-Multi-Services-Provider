@@ -1,7 +1,7 @@
 const express=require('express'),bcrypt=require('bcryptjs'),jwt=require('jsonwebtoken'),User=require('../models/User'),Vendor=require('../models/Vendor');
 const {auth:requireAuth}=require('../middleware/auth');
 const r=express.Router();
-const publicUser=u=>({id:u._id,name:u.name,phone:u.phone,email:u.email,role:u.role,vendorId:u.vendorId,deliveryBoyId:u.deliveryBoyId,address:u.address});
+const publicUser=u=>({id:u._id,name:u.name,phone:u.phone,email:u.email,dob:u.dob||'',role:u.role,vendorId:u.vendorId,deliveryBoyId:u.deliveryBoyId,address:u.address});
 const token=u=>jwt.sign({sub:String(u._id),role:u.role},process.env.JWT_SECRET,{expiresIn:'30d'});
 r.post('/register',async(req,res,next)=>{try{
  const {name,phone,password,role='CUSTOMER',email='',address={},signupCode='',businessName='',serviceRadiusKm=10,aadhaarNumber='',aadhaarImageData=''}=req.body||{};
@@ -22,6 +22,19 @@ r.post('/login',async(req,res,next)=>{try{
  let approved=true;if(u.role==='VENDOR'){const v=await Vendor.findOne({vendorId:u.vendorId});approved=Boolean(v&&v.approved&&v.active);}
  res.json({success:true,token:token(u),user:publicUser(u),approved});
 }catch(e){next(e)}});
+r.get('/me',requireAuth,async(req,res,next)=>{try{res.json({success:true,user:publicUser(req.user)});}catch(e){next(e)}});
+r.put('/profile',requireAuth,async(req,res,next)=>{try{
+ const body=req.body||{},name=String(body.name||'').trim(),email=String(body.email||'').trim(),dob=String(body.dob||'').trim();
+ if(!name)return res.status(400).json({error:'Name is required'});
+ if(dob&&!/^\\d{2}\\/\\d{2}\\/\\d{4}$/.test(dob))return res.status(400).json({error:'Date of Birth must use DD/MM/YYYY format'});
+ req.user.name=name;req.user.email=email;req.user.dob=dob;
+ if(body.address&&typeof body.address==='object'){
+   const a=body.address;
+   req.user.address={line1:String(a.line1||'').trim(),city:String(a.city||'').trim(),postOffice:String(a.postOffice||'').trim(),pincode:String(a.pincode||'').trim(),lat:Number.isFinite(Number(a.lat))?Number(a.lat):req.user.address?.lat,lng:Number.isFinite(Number(a.lng))?Number(a.lng):req.user.address?.lng,geoTagged:Boolean(a.geoTagged)||Boolean(req.user.address?.geoTagged)};
+ }
+ await req.user.save();res.json({success:true,message:'Profile updated',user:publicUser(req.user)});
+}catch(e){next(e)}});
+
 r.put('/password',requireAuth,async(req,res,next)=>{try{
  const current=String(req.body?.currentPassword||''),nextPw=String(req.body?.newPassword||'');
  if(nextPw.length<6)return res.status(400).json({error:'New password must be at least 6 characters'});
