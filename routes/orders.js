@@ -115,7 +115,14 @@ r.post('/',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
  res.status(201).json({success:true,message:'Order created',order:await publicOrder(o)});
  }catch(e){next(e)}});
 
-r.get('/mine',auth,roles('CUSTOMER'),async(req,res,next)=>{try{const os=await Order.find({customerId:req.user._id}).sort({createdAt:-1});res.json({success:true,orders:await Promise.all(os.map(publicOrder))})}catch(e){next(e)}});
+r.get('/mine',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
+ const os=await Order.find({customerId:req.user._id}).sort({createdAt:-1}).lean();
+ const vids=[...new Set(os.map(o=>String(o.vendorId||'')).filter(Boolean))];
+ const vs=vids.length?await Vendor.find({vendorId:{$in:vids}}).select('vendorId businessName').lean():[];
+ const vm=new Map(vs.map(v=>[String(v.vendorId),v.businessName||v.vendorId]));
+ const orders=os.map(o=>({...o,vendorName:vm.get(String(o.vendorId||''))||String(o.vendorId||'Vendor'),totalPrice:Number(o.grandTotal||0)}));
+ res.json({success:true,orders});
+}catch(e){next(e)}});
 
 r.get('/vendor',auth,roles('VENDOR'),async(req,res,next)=>{try{const os=await Order.find({vendorId:req.user.vendorId}).sort({createdAt:-1});res.json({success:true,orders:await Promise.all(os.map(publicOrder))})}catch(e){next(e)}});
 
