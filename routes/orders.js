@@ -138,7 +138,7 @@ r.get('/admin',auth,roles('ADMIN'),async(req,res,next)=>{try{const os=await Orde
 
 r.get('/delivery/available',auth,roles('ADMIN','VENDOR'),async(req,res,next)=>{try{const users=await User.find({role:'DELIVERY_BOY',active:true}).select('-passwordHash');res.json({success:true,deliveryBoys:users})}catch(e){next(e)}});
 
-r.get('/delivery/mine',auth,roles('DELIVERY_BOY'),async(req,res,next)=>{try{const os=await Order.find({deliveryBoyId:req.user.deliveryBoyId,status:{$nin:['DELIVERED','CANCELLED']}}).sort({createdAt:-1});res.json({success:true,orders:await Promise.all(os.map(publicOrder))})}catch(e){next(e)}});
+r.get('/delivery/mine',auth,roles('DELIVERY_BOY'),async(req,res,next)=>{try{const os=await Order.find({deliveryBoyId:req.user.deliveryBoyId,status:{$in:['OUT_FOR_DELIVERY','DELIVERED']}}).sort({createdAt:-1}).limit(100);res.json({success:true,orders:await Promise.all(os.map(publicOrder))})}catch(e){next(e)}});
 
 r.put('/:id/status',auth,roles('ADMIN','VENDOR','DELIVERY_BOY'),async(req,res,next)=>{try{
  const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
@@ -165,6 +165,17 @@ r.put('/:id/location',auth,roles('DELIVERY_BOY'),async(req,res,next)=>{try{
  const o=await Order.findOne({_id:req.params.id,deliveryBoyId:req.user.deliveryBoyId,status:'OUT_FOR_DELIVERY'});if(!o)return res.status(404).json({error:'Active delivery not found'});
  o.lastDeliveryLocation={lat,lng,accuracy,updatedAt:new Date()};await o.save();res.json({success:true,status:o.status,location:o.lastDeliveryLocation});
  }catch(e){next(e)}});
+
+r.post('/:id/rating',auth,roles('CUSTOMER'),async(req,res,next)=>{try{
+ const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
+ if(String(o.customerId)!==String(req.user._id))return res.status(403).json({error:'Not your order'});
+ if(o.status!=='DELIVERED')return res.status(400).json({error:'Rating is available only after delivery'});
+ const food=Number(req.body?.foodRating),delivery=Number(req.body?.deliveryRating);
+ if(!Number.isInteger(food)||food<1||food>5||!Number.isInteger(delivery)||delivery<1||delivery>5)return res.status(400).json({error:'Both Food and Delivery Boy ratings must be between 1 and 5'});
+ if(o.foodRating||o.deliveryRating)return res.status(409).json({error:'This order has already been rated'});
+ o.foodRating=food;o.deliveryRating=delivery;o.review=String(req.body?.review||'').trim().slice(0,1000);o.ratedAt=new Date();await o.save();
+ res.json({success:true,message:'Thank you for your rating',order:await publicOrder(o)});
+}catch(e){next(e)}});
 
 r.get('/:id',auth,async(req,res,next)=>{try{
  const o=await Order.findById(req.params.id);if(!o)return res.status(404).json({error:'Order not found'});
